@@ -420,7 +420,9 @@
             { bg: 'bg-yellow-100', text: 'text-yellow-800' },
             { bg: 'bg-purple-100', text: 'text-purple-800' },
             { bg: 'bg-pink-100', text: 'text-pink-800' },
-            { bg: 'bg-indigo-100', text: 'text-indigo-800' }
+            { bg: 'bg-indigo-100', text: 'text-indigo-800' },
+            { bg: 'bg-red-100', text: 'text-red-800' },
+            { bg: 'bg-teal-100', text: 'text-teal-800' }
         ];
         const defaultEmployeeColor = { bg: 'bg-gray-100', text: 'text-gray-800' };
         const taskTypeBorders = { 
@@ -478,6 +480,13 @@
 
         
         // --- FUNCIONES DE GUARDADO Y SEGURIDAD ---
+        const toISODateString = (date) => {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
         const loadAllData = () => {
             allPharmacies = JSON.parse(localStorage.getItem('multiPharmacy_pharmacies')) || [];
             allPasswords = JSON.parse(localStorage.getItem('multiPharmacy_passwords')) || {};
@@ -562,7 +571,7 @@
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(year, month, day);
-                const dateString = date.toISOString().split('T')[0];
+                const dateString = toISODateString(date);
                 const dayEl = document.createElement('div');
                 dayEl.className = 'border border-gray-200 bg-white rounded-lg p-2 flex flex-col min-h-[120px] cursor-pointer';
                 
@@ -581,8 +590,12 @@
                     const typeBorderColor = taskTypeBorders[task.type] || 'border-gray-400';
                     
                     let isCompletedToday = false;
-                    if (task.recurrence) {
-                        isCompletedToday = task.completedDates.includes(dateString);
+                    if (task.recurrence || task.type === 'flexible') {
+                         if (task.type === 'flexible' && !task.recurrence) {
+                            isCompletedToday = task.status === 'completada';
+                        } else {
+                            isCompletedToday = task.completedDates.includes(dateString);
+                        }
                     } else {
                         isCompletedToday = task.status === 'completada';
                     }
@@ -606,7 +619,7 @@
         };
 
         const getTasksForDate = (date, taskList) => {
-            const dateString = date.toISOString().split('T')[0];
+            const dateString = toISODateString(date);
             const dayOfMonth = date.getDate();
             const dayOfWeek = date.getDay();
             return taskList.filter(task => {
@@ -624,6 +637,9 @@
                 }
 
                 if ((task.type === 'flexible' || task.type === 'anual') && !task.recurrence) {
+                     if (task.status === 'completada') {
+                        return dateString === task.completionDate;
+                    }
                     return dateString >= task.startDate && dateString <= task.dueDate;
                 }
                 
@@ -673,25 +689,24 @@
 
                 tasks.filter(t => t.assignedTo === employee.id).forEach(task => {
                     if (task.type === 'flexible' && task.recurrence?.type === 'monthly') {
-                        const startDay = parseInt(task.startDate);
-                        const endDay = parseInt(task.dueDate);
-                        for (let day = 1; day <= daysInMonth; day++) {
-                            if (day >= startDay && day <= endDay) {
-                                totalTime += task.estimatedTime;
-                                const date = new Date(year, month, day);
-                                const dateString = date.toISOString().split('T')[0];
-                                if (task.completedDates.includes(dateString)) {
-                                    completedTime += task.estimatedTime;
-                                }
-                            }
+                        totalTime += task.estimatedTime || 0;
+                        const completedThisMonth = task.completedDates.some(dateStr => {
+                            const completedMonth = parseInt(dateStr.split('-')[1], 10) - 1;
+                            const completedYear = parseInt(dateStr.split('-')[0], 10);
+                            return completedMonth === month && completedYear === year;
+                        });
+
+                        if (completedThisMonth) {
+                             completedTime += task.estimatedTime || 0;
                         }
+
                     } else if (task.type === 'recurrente' && task.recurrence) {
                         if (task.recurrence.type === 'weekly' && task.recurrence.days) {
                             for (let day = 1; day <= daysInMonth; day++) {
                                 const date = new Date(year, month, day);
                                 if (task.recurrence.days.includes(String(date.getDay()))) {
                                     totalTime += task.estimatedTime;
-                                    const dateString = date.toISOString().split('T')[0];
+                                    const dateString = toISODateString(date);
                                     if (task.completedDates.includes(dateString)) {
                                         completedTime += task.estimatedTime;
                                     }
@@ -702,19 +717,36 @@
                             if (dayOfMonth > 0 && dayOfMonth <= daysInMonth) {
                                 totalTime += task.estimatedTime;
                                 const date = new Date(year, month, dayOfMonth);
-                                const dateString = date.toISOString().split('T')[0];
+                                const dateString = toISODateString(date);
                                 if (task.completedDates.includes(dateString)) {
                                     completedTime += task.estimatedTime;
                                 }
                             }
                         }
-                    } else {
-                         const taskMonth = task.dueDate ? new Date(task.dueDate).getMonth() : -1;
-                         if(taskMonth === month) {
+                    } else if ((task.type === 'flexible' || task.type === 'anual') && !task.recurrence) {
+                        const monthStartStr = toISODateString(new Date(year, month, 1));
+                        const monthEndStr = toISODateString(new Date(year, month + 1, 0));
+
+                        if (task.startDate <= monthEndStr && task.dueDate >= monthStartStr) {
                             totalTime += task.estimatedTime || 0;
-                            if(task.status === 'completada'){
-                                completedTime += task.estimatedTime || 0;
+                            if (task.status === 'completada' && task.completionDate) {
+                                const completionMonth = parseInt(task.completionDate.split('-')[1], 10) - 1;
+                                const completionYear = parseInt(task.completionDate.split('-')[0], 10);
+                                if (completionMonth === month && completionYear === year) {
+                                    completedTime += task.estimatedTime || 0;
+                                }
                             }
+                        }
+                    } else { 
+                         if (task.dueDate) {
+                             const taskMonth = parseInt(task.dueDate.split('-')[1], 10) - 1;
+                             const taskYear = parseInt(task.dueDate.split('-')[0], 10);
+                             if(taskMonth === month && taskYear === year) {
+                                totalTime += task.estimatedTime || 0;
+                                if(task.status === 'completada'){
+                                    completedTime += task.estimatedTime || 0;
+                                }
+                             }
                          }
                     }
                 });
@@ -756,7 +788,8 @@
             if (isLocked) { promptForPassword(); return; }
             const name = newEmployeeNameInput.value.trim();
             if (name) {
-                employees.push({ id: Date.now(), name: name });
+                const newId = employees.length > 0 ? Math.max(...employees.map(emp => emp.id)) + 1 : 1;
+                employees.push({ id: newId, name: name });
                 saveEmployees();
                 renderAll();
                 newEmployeeNameInput.value = '';
@@ -818,8 +851,12 @@
                 toggleBtn.classList.remove('hidden');
 
                 let isCompletedToday = false;
-                if(task.recurrence) {
-                    isCompletedToday = dateString && task.completedDates.includes(dateString);
+                 if (task.recurrence || task.type === 'flexible') {
+                     if (task.type === 'flexible' && !task.recurrence) {
+                        isCompletedToday = task.status === 'completada';
+                    } else {
+                        isCompletedToday = dateString && task.completedDates.includes(dateString);
+                    }
                 } else {
                     isCompletedToday = task.status === 'completada';
                 }
@@ -1085,7 +1122,7 @@
         };
 
         const checkDueTasks = () => {
-            const today = new Date().toISOString().split('T')[0];
+            const today = toISODateString(new Date());
             tasks.forEach(task => {
                 if (task.type === 'inaplazable' && task.dueDate === today && task.status === 'pendiente') {
                     showToast(`¡ATENCIÓN! La tarea "${task.title}" vence hoy.`);
@@ -1340,18 +1377,22 @@
                 const task = tasks.find(t => t.id === id);
 
                 if (task) {
-                    if (task.recurrence) {
-                        if (!instanceDate) return;
-                        const dateIndex = task.completedDates.indexOf(instanceDate);
-                        if (dateIndex > -1) {
-                            task.completedDates.splice(dateIndex, 1);
-                        } else {
-                            task.completedDates.push(instanceDate);
+                    if (task.recurrence || (task.type === 'flexible' && !task.recurrence && task.status === 'pendiente')) {
+                         if (task.type === 'flexible' && !task.recurrence) {
+                            task.status = 'completada';
+                            task.completionDate = toISODateString(new Date());
+                        } else if (instanceDate) {
+                            const dateIndex = task.completedDates.indexOf(instanceDate);
+                            if (dateIndex > -1) {
+                                task.completedDates.splice(dateIndex, 1);
+                            } else {
+                                task.completedDates.push(instanceDate);
+                            }
                         }
                     } else {
                          if (task.status === 'pendiente') {
                             task.status = 'completada';
-                            task.completionDate = new Date().toISOString().split('T')[0];
+                            task.completionDate = toISODateString(new Date());
                         } else {
                             task.status = 'pendiente';
                             task.completionDate = null;
