@@ -496,7 +496,23 @@
 
         const loadPharmacyData = (pharmacyId) => {
             tasks = JSON.parse(localStorage.getItem(`pharmacy-${pharmacyId}-tasks`)) || [];
-            employees = JSON.parse(localStorage.getItem(`pharmacy-${pharmacyId}-employees`)) || [];
+            const storedEmployees = JSON.parse(localStorage.getItem(`pharmacy-${pharmacyId}-employees`));
+
+            if (storedEmployees) {
+                employees = storedEmployees;
+            } else {
+                employees = [
+                    { id: 1, name: 'Gerente' },
+                    { id: 2, name: 'Adjunto Gt' },
+                    { id: 3, name: 'Dinamizador Dermo' },
+                    { id: 4, name: 'Equipo 1' },
+                    { id: 5, name: 'Equipo 2' },
+                    { id: 6, name: 'Equipo 3' },
+                    { id: 7, name: 'Equipo 4' },
+                    { id: 8, name: 'Equipo 5' }
+                ];
+                localStorage.setItem(`pharmacy-${pharmacyId}-employees`, JSON.stringify(employees));
+            }
         };
 
         const saveTasks = () => localStorage.setItem(`pharmacy-${currentPharmacyId}-tasks`, JSON.stringify(tasks));
