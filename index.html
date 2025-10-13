@@ -481,10 +481,10 @@
         
         // --- FUNCIONES DE GUARDADO Y SEGURIDAD ---
         const toISODateString = (date) => {
-            const year = date.getFullYear();
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
-            return `${year}-${month}-${day}`;
+            if (!date) return null;
+            const d = new Date(date);
+            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+            return d.toISOString().split('T')[0];
         };
 
         const loadAllData = () => {
@@ -570,7 +570,7 @@
             const filteredTasks = tasks.filter(task => (filters.employee === 'all' || task.assignedTo == filters.employee) && (filters.type === 'all' || task.type === filters.type));
 
             for (let day = 1; day <= daysInMonth; day++) {
-                const date = new Date(year, month, day);
+                const date = new Date(Date.UTC(year, month, day));
                 const dateString = toISODateString(date);
                 const dayEl = document.createElement('div');
                 dayEl.className = 'border border-gray-200 bg-white rounded-lg p-2 flex flex-col min-h-[120px] cursor-pointer';
@@ -620,8 +620,8 @@
 
         const getTasksForDate = (date, taskList) => {
             const dateString = toISODateString(date);
-            const dayOfMonth = date.getDate();
-            const dayOfWeek = date.getDay();
+            const dayOfMonth = date.getUTCDate();
+            const dayOfWeek = date.getUTCDay();
             return taskList.filter(task => {
                 if (task.type === 'flexible' && task.recurrence?.type === 'monthly') {
                     return dayOfMonth >= parseInt(task.startDate) && dayOfMonth <= parseInt(task.dueDate);
@@ -703,8 +703,8 @@
                     } else if (task.type === 'recurrente' && task.recurrence) {
                         if (task.recurrence.type === 'weekly' && task.recurrence.days) {
                             for (let day = 1; day <= daysInMonth; day++) {
-                                const date = new Date(year, month, day);
-                                if (task.recurrence.days.includes(String(date.getDay()))) {
+                                const date = new Date(Date.UTC(year, month, day));
+                                if (task.recurrence.days.includes(String(date.getUTCDay()))) {
                                     totalTime += task.estimatedTime;
                                     const dateString = toISODateString(date);
                                     if (task.completedDates.includes(dateString)) {
@@ -716,7 +716,7 @@
                             const dayOfMonth = parseInt(task.recurrence.dayOfMonth);
                             if (dayOfMonth > 0 && dayOfMonth <= daysInMonth) {
                                 totalTime += task.estimatedTime;
-                                const date = new Date(year, month, dayOfMonth);
+                                const date = new Date(Date.UTC(year, month, dayOfMonth));
                                 const dateString = toISODateString(date);
                                 if (task.completedDates.includes(dateString)) {
                                     completedTime += task.estimatedTime;
@@ -724,8 +724,8 @@
                             }
                         }
                     } else if ((task.type === 'flexible' || task.type === 'anual') && !task.recurrence) {
-                        const monthStartStr = toISODateString(new Date(year, month, 1));
-                        const monthEndStr = toISODateString(new Date(year, month + 1, 0));
+                        const monthStartStr = toISODateString(new Date(Date.UTC(year, month, 1)));
+                        const monthEndStr = toISODateString(new Date(Date.UTC(year, month + 1, 0)));
 
                         if (task.startDate <= monthEndStr && task.dueDate >= monthStartStr) {
                             totalTime += task.estimatedTime || 0;
@@ -972,7 +972,7 @@
                             <tr class="border-b">
                                 <td class="p-2 font-medium">${instance.title}</td>
                                 <td class="p-2">${instance.assignedTo}</td>
-                                <td class="p-2">${instance.completionDate.toLocaleDateString()}</td>
+                                <td class="p-2">${new Date(instance.completionDate.getTime() + instance.completionDate.getTimezoneOffset() * 60000).toLocaleDateString()}</td>
                             </tr>
                         `).join('')}
                         </tbody>
@@ -1376,32 +1376,43 @@
                 const instanceDate = document.getElementById('task-instance-date').value;
                 const task = tasks.find(t => t.id === id);
 
-                if (task) {
-                    if (task.recurrence || (task.type === 'flexible' && !task.recurrence && task.status === 'pendiente')) {
-                         if (task.type === 'flexible' && !task.recurrence) {
-                            task.status = 'completada';
-                            task.completionDate = toISODateString(new Date());
-                        } else if (instanceDate) {
-                            const dateIndex = task.completedDates.indexOf(instanceDate);
-                            if (dateIndex > -1) {
-                                task.completedDates.splice(dateIndex, 1);
-                            } else {
-                                task.completedDates.push(instanceDate);
-                            }
-                        }
+                if (!task) return;
+
+                // Handle flexible, non-recurrent tasks
+                if (task.type === 'flexible' && !task.recurrence) {
+                    if (task.status === 'pendiente') {
+                        task.status = 'completada';
+                        task.completionDate = instanceDate; // FIX: Use the specific day it was completed on
                     } else {
-                         if (task.status === 'pendiente') {
-                            task.status = 'completada';
-                            task.completionDate = toISODateString(new Date());
+                        task.status = 'pendiente';
+                        task.completionDate = null;
+                    }
+                }
+                // Handle recurrent tasks (both 'recurrente' and 'flexible' types)
+                else if (task.recurrence) {
+                    if (instanceDate) {
+                        const dateIndex = task.completedDates.indexOf(instanceDate);
+                        if (dateIndex > -1) {
+                            task.completedDates.splice(dateIndex, 1);
                         } else {
-                            task.status = 'pendiente';
-                            task.completionDate = null;
+                            task.completedDates.push(instanceDate);
                         }
                     }
-                    saveTasks(); 
-                    renderAll(); 
-                    openModal(task, instanceDate); 
                 }
+                // Handle all other non-recurrent tasks (puntual, inaplazable, anual)
+                else {
+                    if (task.status === 'pendiente') {
+                        task.status = 'completada';
+                        task.completionDate = toISODateString(new Date()); // Using today's date is fine for these
+                    } else {
+                        task.status = 'pendiente';
+                        task.completionDate = null;
+                    }
+                }
+
+                saveTasks();
+                renderAll();
+                openModal(task, instanceDate); // Re-open modal to reflect changes
             });
         };
 
